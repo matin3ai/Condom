@@ -1,7 +1,7 @@
 ```markdown
 # VPS Security Hardening Script 🔒
 
-**`01-condom.sh`** – A "protection-first" script to secure your Linux VPS against common vulnerabilities.  
+**`Condom.sh`** – A "protection-first" script to secure your Linux VPS against common vulnerabilities.  
 *Because even servers deserve safe computing!*
 
 ---
@@ -39,10 +39,10 @@
 wget https://raw.githubusercontent.com/yourusername/repo/main/01-condom.sh
 
 # Make executable
-chmod +x 01-condom.sh
+chmod +x Condom.sh
 
 # Run as root
-sudo ./01-condom.sh
+sudo ./Condom.sh
 ```
 
 ---
@@ -63,13 +63,13 @@ TOOLS_INSTALL=1           # 1=Install tools, 0=Skip
 ## 🚀 Usage
 1. **Interactive Setup**:
    ```bash
-   sudo ./01-condom.sh
+   sudo ./Condom.sh
    ```
    Follow prompts for user creation and SSH configuration.
 
 2. **Automated Setup** (pre-configured variables):
    ```bash
-   sudo USERNAME=admin SSH_PORT=2222 ./01-condom.sh
+   sudo USERNAME=admin SSH_PORT=2222 ./Condom.sh
    ```
 
 3. **Post-Installation**:
@@ -119,5 +119,5 @@ This script:
 ---
 
 ## 📜 License
-MIT License © 2024 [Your Name]  
-`01-condom.sh` is licensed under the MIT License. Use at your own risk.
+MIT License © 2024 [Matin3ai]  
+`Condom.sh` is licensed under the MIT License. Use at your own risk.
