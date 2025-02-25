@@ -36,7 +36,7 @@
 ## 📥 Installation
 ```bash
 # Download the script
-wget https://raw.githubusercontent.com/yourusername/repo/main/01-condom.sh
+wget https://raw.githubusercontent.com/yourusername/repo/main/Condom.sh
 
 # Make executable
 chmod +x Condom.sh
