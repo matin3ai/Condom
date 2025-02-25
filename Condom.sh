@@ -59,7 +59,7 @@ install_docker() {
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | tee /etc/apt/keyrings/docker.asc > /dev/null
     chmod a+r /etc/apt/keyrings/docker.asc
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-    apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+    apt update && apt install -y docker.io docker-ce docker-ce-cli containerd.io docker-compose-plugin
     if [[ $? -ne 0 ]]; then
         echo "❌ Failed to install Docker. Retrying..."
         apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
