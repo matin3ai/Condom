@@ -32,7 +32,7 @@
 
 ---
 
-## 📞 Installation
+## ⚓️ Installation
 
 To install and run `Condom.sh`, follow these simple steps:
 
