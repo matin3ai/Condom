@@ -1,25 +1,117 @@
 #!/bin/bash
 
+### -- PRE-RUN CHECKS -- ###
 if [[ $EUID -ne 0 ]]; then
-    echo "❌ Root privileges required"
+    echo "WELCOME! ❌ This script must be run as root. Use 'sudo' or log in as root and try again."
     exit 1
 fi
 
-USERNAME="matin3ai"
-SSH_PORT=2222
-TIMEZONE="UTC"
-DOMAIN="yourdomain.com"
+echo "🔒 Starting VPS Security Hardening & Setup..."
+sleep 2
 
+### -- SET VARIABLES -- ###
+read -p "Enter the new sudo username: " USERNAME
+while [[ -z "$USERNAME" ]]; do
+    echo "❌ Username cannot be empty. Please enter a valid username."
+    read -p "Enter the new sudo username: " USERNAME
+done
+
+read -p "Enter SSH Port (default 22): " SSH_PORT
+SSH_PORT=${SSH_PORT:-22}  # Default to 22 if empty
+
+read -p "Enter your timezone (e.g., UTC, Asia/Tehran): " TIMEZONE
+TIMEZONE=${TIMEZONE:-UTC}
+
+### -- FUNCTIONS -- ###
+
+# Function to change DNS servers
+change_dns() {
+    echo "🌐 Changing DNS servers to Google DNS (8.8.8.8 and 8.8.4.4)..."
+    cat <<EOF > /etc/resolv.conf
+nameserver 8.8.8.8
+nameserver 8.8.4.4
+EOF
+    echo "✅ DNS servers updated."
+}
+
+# Function to find the best repository mirror
+find_best_mirror() {
+    echo "🔍 Finding the best repository mirror based on ping..."
+    MIRROR=$(curl -s http://mirrors.ubuntu.com/mirrors.txt | xargs -I{} sh -c 'echo `curl -r 0-102400 -s -w %{speed_download} -o /dev/null {}/ls-lR.gz` {}' | sort -g -r | head -1 | awk '{print $2}')
+    if [[ -z "$MIRROR" ]]; then
+        echo "❌ Failed to find a suitable mirror. Using default."
+        MIRROR="http://archive.ubuntu.com/ubuntu"
+    else
+        echo "✅ Best mirror found: $MIRROR"
+    fi
+
+    # Update sources.list with the best mirror
+    sed -i "s|http://.*.ubuntu.com/ubuntu|$MIRROR|g" /etc/apt/sources.list
+    apt update
+}
+
+# Function to install Docker
+install_docker() {
+    echo "🐳 Installing Docker..."
+    apt remove -y docker docker-engine docker.io containerd runc
+    apt install -y ca-certificates curl gnupg
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | tee /etc/apt/keyrings/docker.asc > /dev/null
+    chmod a+r /etc/apt/keyrings/docker.asc
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+    apt update && apt install -y docker.io docker-ce docker docker-ce-cli containerd.io docker-compose-plugin
+    if [[ $? -ne 0 ]]; then
+        echo "❌ Failed to install Docker. Retrying..."
+        apt update && apt install -y docker-ce docker-ce-cli containerd.io docker docker-compose-plugin
+    fi
+    echo "✅ Docker installed successfully."
+}
+
+# Function to install additional tools
+install_tools() {
+    echo "🛠️ Installing additional tools..."
+    TOOLS=("ufw" "fail2ban" "unattended-upgrades" "curl" "git" "htop" "net-tools")
+    for tool in "${TOOLS[@]}"; do
+        echo "Installing $tool..."
+        apt install -y "$tool"
+        if [[ $? -ne 0 ]]; then
+            echo "❌ Failed to install $tool. Skipping..."
+        fi
+    done
+    echo "✅ Additional tools installed."
+}
+
+### -- MAIN SCRIPT -- ###
+
+# Change DNS servers
+change_dns
+
+# Find and use the best repository mirror
+find_best_mirror
+
+# Update system and install security packages
+echo "🔄 Updating system and installing security packages..."
 apt update && apt upgrade -y
-apt install -y ufw fail2ban docker.io docker-compose nginx certbot python3-certbot-nginx \
-    curl git htop net-tools unattended-upgrades apt-transport-https ca-certificates \
-    gnupg lsb-release software-properties-common
+if [[ $? -ne 0 ]]; then
+    echo "❌ Failed to update system packages. Retrying..."
+    apt update && apt upgrade -y
+fi
 
-systemctl enable docker && systemctl start docker
+# Install additional tools
+install_tools
 
-if ! id "$USERNAME" &>/dev/null; then
+# Set timezone
+echo "⏳ Setting timezone to $TIMEZONE..."
+timedatectl set-timezone "$TIMEZONE"
+
+# Create a secure user
+if id "$USERNAME" &>/dev/null; then
+    echo "✅ User '$USERNAME' already exists."
+else
+    echo "👤 Creating new sudo user: $USERNAME..."
     adduser --gecos "" "$USERNAME"
-    usermod -aG sudo,docker "$USERNAME"
+    usermod -aG sudo "$USERNAME"
+    echo "🔑 Copying SSH keys for secure login..."
     mkdir -p /home/$USERNAME/.ssh
     cp ~/.ssh/authorized_keys /home/$USERNAME/.ssh/
     chown -R $USERNAME:$USERNAME /home/$USERNAME/.ssh
@@ -27,43 +119,15 @@ if ! id "$USERNAME" &>/dev/null; then
     chmod 600 /home/$USERNAME/.ssh/authorized_keys
 fi
 
-cat > /etc/ssh/sshd_config << EOF
-Port $SSH_PORT
-PermitRootLogin no
-PasswordAuthentication no
-X11Forwarding no
-MaxAuthTries 3
-ClientAliveInterval 300
-ClientAliveCountMax 0
-AllowUsers $USERNAME
-Protocol 2
-HostKey /etc/ssh/ssh_host_rsa_key
-HostKey /etc/ssh/ssh_host_ecdsa_key
-HostKey /etc/ssh/ssh_host_ed25519_key
-KexAlgorithms curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group14-sha256
-Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
-MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com
-EOF
+# Secure SSH
+echo "🔐 Securing SSH..."
+sed -i "s/^#Port 22/Port $SSH_PORT/" /etc/ssh/sshd_config
+sed -i "s/^#PermitRootLogin yes/PermitRootLogin no/" /etc/ssh/sshd_config
+sed -i "s/^#PasswordAuthentication yes/PasswordAuthentication no/" /etc/ssh/sshd_config
+systemctl restart sshd
 
-cat > /etc/fail2ban/jail.local << EOF
-[DEFAULT]
-bantime = 1h
-findtime = 10m
-maxretry = 3
-banaction = iptables-multiport
-
-[sshd]
-enabled = true
-port = $SSH_PORT
-filter = sshd
-logpath = /var/log/auth.log
-
-[nginx-http-auth]
-enabled = true
-filter = nginx-http-auth
-logpath = /var/log/nginx/error.log
-EOF
-
+# Set up UFW firewall
+echo "🛡️ Configuring UFW Firewall..."
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow $SSH_PORT/tcp
@@ -71,67 +135,36 @@ ufw allow 80/tcp
 ufw allow 443/tcp
 ufw --force enable
 
-cat > /etc/sysctl.conf << EOF
-net.ipv4.ip_forward = 0
-net.ipv4.conf.all.send_redirects = 0
-net.ipv4.conf.default.send_redirects = 0
-net.ipv4.conf.all.accept_source_route = 0
-net.ipv4.conf.default.accept_source_route = 0
-net.ipv4.conf.all.accept_redirects = 0
-net.ipv4.conf.default.accept_redirects = 0
-net.ipv4.conf.all.secure_redirects = 0
-net.ipv4.conf.default.secure_redirects = 0
-net.ipv4.conf.all.log_martians = 1
-net.ipv4.conf.default.log_martians = 1
-net.ipv4.icmp_echo_ignore_broadcasts = 1
-net.ipv4.icmp_ignore_bogus_error_responses = 1
-net.ipv4.conf.all.rp_filter = 1
-net.ipv4.conf.default.rp_filter = 1
-net.ipv4.tcp_syncookies = 1
-net.ipv4.tcp_rfc1337 = 1
-net.ipv4.tcp_max_syn_backlog = 2048
-net.ipv4.tcp_synack_retries = 2
-net.ipv4.tcp_syn_retries = 5
-net.ipv4.tcp_timestamps = 0
-net.ipv4.tcp_max_tw_buckets = 4000
-net.ipv4.tcp_fin_timeout = 15
-net.ipv4.tcp_keepalive_time = 300
-net.ipv4.tcp_keepalive_probes = 5
-net.ipv4.tcp_keepalive_intvl = 15
-net.ipv4.tcp_mtu_probing = 1
-net.core.rmem_max = 16777216
-net.core.wmem_max = 16777216
-net.ipv4.tcp_rmem = 4096 87380 16777216
-net.ipv4.tcp_wmem = 4096 65536 16777216
-net.core.somaxconn = 65535
-net.core.netdev_budget = 500
-net.core.netdev_budget_usecs = 8000
-net.ipv4.tcp_fastopen = 3
-net.ipv4.tcp_slow_start_after_idle = 0
-net.ipv4.tcp_congestion_control = bbr
-net.core.default_qdisc = fq
-fs.file-max = 65535
+# Install Docker
+install_docker
+
+# Add user to Docker group
+echo "⚙️ Adding $USERNAME to Docker group..."
+usermod -aG docker "$USERNAME"
+systemctl enable docker && systemctl start docker
+
+# Check open ports
+echo "🔍 Checking open ports..."
+ss -tulnp | grep LISTEN
+
+# Enable automatic security updates
+echo "📦 Enabling automatic security updates..."
+dpkg-reconfigure -plow unattended-upgrades
+
+# Apply kernel hardening
+echo "🛠️ Applying system hardening..."
+cat <<EOF >> /etc/sysctl.conf
 fs.suid_dumpable = 0
 kernel.randomize_va_space = 2
-kernel.kptr_restrict = 2
-kernel.yama.ptrace_scope = 1
-kernel.sysrq = 0
-kernel.core_uses_pid = 1
-kernel.msgmnb = 65536
-kernel.msgmax = 65536
-kernel.shmmax = 68719476736
-kernel.shmall = 4294967296
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
 EOF
-
 sysctl -p
 
-timedatectl set-timezone "$TIMEZONE"
-
-systemctl enable fail2ban && systemctl start fail2ban
-
-echo "✅ Hardening complete. System will reboot in 10 seconds..."
-echo "GOOD LUCK (Matin3ai)"
+# Final instructions
+echo "✅ VPS setup complete!"
+echo "🚀 You can now log in as $USERNAME using SSH on port $SSH_PORT."
+echo "🔍 Check your open ports carefully and disable any unnecessary ones."
+echo "🔄 Rebooting in 10 seconds.GOODLUCK... (MATIN3AI)"
 sleep 10
 reboot
-
-# matin3ai
