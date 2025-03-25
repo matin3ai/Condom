@@ -1,6 +1,5 @@
 #!/bin/bash
 
-### -- PRE-RUN CHECKS -- ###
 if [[ $EUID -ne 0 ]]; then
     echo "WELCOME! ❌ This script must be run as root. Use 'sudo' or log in as root and try again."
     exit 1
@@ -9,7 +8,7 @@ fi
 echo "🔒 Starting VPS Security Hardening & Setup..."
 sleep 2
 
-### -- SET VARIABLES -- ###
+
 read -p "Enter the new sudo username: " USERNAME
 while [[ -z "$USERNAME" ]]; do
     echo "❌ Username cannot be empty. Please enter a valid username."
@@ -22,9 +21,6 @@ SSH_PORT=${SSH_PORT:-22}  # Default to 22 if empty
 read -p "Enter your timezone (e.g., UTC, Asia/Tehran): " TIMEZONE
 TIMEZONE=${TIMEZONE:-UTC}
 
-### -- FUNCTIONS -- ###
-
-# Function to change DNS servers
 change_dns() {
     echo "🌐 Changing DNS servers to Google DNS (8.8.8.8 and 8.8.4.4)..."
     cat <<EOF > /etc/resolv.conf
@@ -34,7 +30,7 @@ EOF
     echo "✅ DNS servers updated."
 }
 
-# Function to find the best repository mirror
+
 find_best_mirror() {
     echo "🔍 Finding the best repository mirror based on ping..."
     MIRROR=$(curl -s http://mirrors.ubuntu.com/mirrors.txt | xargs -I{} sh -c 'echo `curl -r 0-102400 -s -w %{speed_download} -o /dev/null {}/ls-lR.gz` {}' | sort -g -r | head -1 | awk '{print $2}')
@@ -50,7 +46,7 @@ find_best_mirror() {
     apt update
 }
 
-# Function to install Docker
+
 install_docker() {
     echo "🐳 Installing Docker..."
     apt remove -y docker docker-engine docker.io containerd runc
@@ -67,7 +63,7 @@ install_docker() {
     echo "✅ Docker installed successfully."
 }
 
-# Function to install additional tools
+
 install_tools() {
     echo "🛠️ Installing additional tools..."
     TOOLS=("ufw" "fail2ban" "unattended-upgrades" "curl" "git" "htop" "net-tools")
@@ -81,12 +77,8 @@ install_tools() {
     echo "✅ Additional tools installed."
 }
 
-### -- MAIN SCRIPT -- ###
 
-# Change DNS servers
 change_dns
-
-# Find and use the best repository mirror
 find_best_mirror
 
 # Update system and install security packages
@@ -97,7 +89,6 @@ if [[ $? -ne 0 ]]; then
     apt update && apt upgrade -y
 fi
 
-# Install additional tools
 install_tools
 
 # Set timezone
@@ -119,14 +110,14 @@ else
     chmod 600 /home/$USERNAME/.ssh/authorized_keys
 fi
 
-# Secure SSH
+
 echo "🔐 Securing SSH..."
 sed -i "s/^#Port 22/Port $SSH_PORT/" /etc/ssh/sshd_config
 sed -i "s/^#PermitRootLogin yes/PermitRootLogin no/" /etc/ssh/sshd_config
 sed -i "s/^#PasswordAuthentication yes/PasswordAuthentication no/" /etc/ssh/sshd_config
 systemctl restart sshd
 
-# Set up UFW firewall
+
 echo "🛡️ Configuring UFW Firewall..."
 ufw default deny incoming
 ufw default allow outgoing
@@ -135,7 +126,7 @@ ufw allow 80/tcp
 ufw allow 443/tcp
 ufw --force enable
 
-# Install Docker
+
 install_docker
 
 # Add user to Docker group
@@ -143,15 +134,15 @@ echo "⚙️ Adding $USERNAME to Docker group..."
 usermod -aG docker "$USERNAME"
 systemctl enable docker && systemctl start docker
 
-# Check open ports
+
 echo "🔍 Checking open ports..."
 ss -tulnp | grep LISTEN
 
-# Enable automatic security updates
+
 echo "📦 Enabling automatic security updates..."
 dpkg-reconfigure -plow unattended-upgrades
 
-# Apply kernel hardening
+
 echo "🛠️ Applying system hardening..."
 cat <<EOF >> /etc/sysctl.conf
 fs.suid_dumpable = 0
@@ -161,7 +152,7 @@ net.ipv4.conf.default.rp_filter = 1
 EOF
 sysctl -p
 
-# Final instructions
+
 echo "✅ VPS setup complete!"
 echo "🚀 You can now log in as $USERNAME using SSH on port $SSH_PORT."
 echo "🔍 Check your open ports carefully and disable any unnecessary ones."
