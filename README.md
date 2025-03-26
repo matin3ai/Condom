@@ -8,7 +8,7 @@
 - [Features](#features)
 - [Installation](#installation)
 - [Configuration](#configuration)
-- [Usage](#usage)
+- [Usage](##-🔄-Usage)
 - [Contributing](#contributing)
 - [Disclaimer](#disclaimer)
 - [License](#license)
