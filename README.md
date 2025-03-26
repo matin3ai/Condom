@@ -5,13 +5,13 @@
 ---
 
 ## 📖 Table of Contents
-- [Features](#features)
-- [Installation](#installation)
-- [Configuration](#configuration)
+- [Features](#-Features)
+- [Installation](#-Installation)
+- [Configuration](#-Configuration)
 - [Usage](#-Usage)
-- [Contributing](#contributing)
-- [Disclaimer](#disclaimer)
-- [License](#license)
+- [Contributing](#-Contributing)
+- [Disclaimer](#-Disclaimer)
+- [License](#-License)
 
 ---
 
