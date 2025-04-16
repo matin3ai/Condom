@@ -20,150 +20,92 @@ done
 read -p "Enter SSH Port (default 22): " SSH_PORT
 SSH_PORT=${SSH_PORT:-22}  # Set default to 22 if empty
 
-# Prompt for system timezone (Default: UTC)
-read -p "Enter your timezone (e.g., UTC, Asia/Tehran): " TIMEZONE
-TIMEZONE=${TIMEZONE:-UTC}
-
-# Function to update DNS settings
+# Function to update DNS settings (Cloudflare DNS)
 change_dns() {
-    echo "🌐 Changing DNS servers to Google DNS (8.8.8.8 and 8.8.4.4)..."
+    echo "🌐 Changing DNS servers to Cloudflare DNS (1.1.1.1 and 1.0.0.1)..."
     cat <<EOF > /etc/resolv.conf
-nameserver 8.8.8.8
-nameserver 8.8.4.4
+nameserver 1.1.1.1
+nameserver 1.0.0.1
 EOF
     echo "✅ DNS servers updated."
 }
 
-# Function to find and set the best Ubuntu repository mirror
-find_best_mirror() {
-    echo "🔍 Finding the best repository mirror based on ping..."
-    MIRROR=$(curl -s http://mirrors.ubuntu.com/mirrors.txt | xargs -I{} sh -c 'echo `curl -r 0-102400 -s -w %{speed_download} -o /dev/null {}/ls-lR.gz` {}' | sort -g -r | head -1 | awk '{print $2}')
-    
-    if [[ -z "$MIRROR" ]]; then
-        echo "❌ Failed to find a suitable mirror. Using default."
-        MIRROR="http://archive.ubuntu.com/ubuntu"
-    else
-        echo "✅ Best mirror found: $MIRROR"
-    fi
-
-    # Update sources.list with the best mirror
-    sed -i "s|http://.*.ubuntu.com/ubuntu|$MIRROR|g" /etc/apt/sources.list
-    apt update
+# Disable IPv6
+disable_ipv6() {
+    echo "🚫 Disabling IPv6..."
+    cat <<EOF >> /etc/sysctl.conf
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+EOF
+    sysctl -p
+    echo "✅ IPv6 disabled."
 }
 
-# Function to install Docker
+# Install Docker
 install_docker() {
     echo "🐳 Installing Docker..."
-    
-    # Remove any old Docker versions
     apt remove -y docker docker-engine docker.io containerd runc
-    
-    # Install required dependencies
     apt install -y ca-certificates curl gnupg
-    
-    # Add Docker's official GPG key
     install -m 0755 -d /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | tee /etc/apt/keyrings/docker.asc > /dev/null
     chmod a+r /etc/apt/keyrings/docker.asc
-    
-    # Set up Docker repository and install Docker
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-    apt update && apt install -y docker.io docker-ce docker docker-ce-cli containerd.io docker-compose-plugin
-    
-    if [[ $? -ne 0 ]]; then
-        echo "❌ Failed to install Docker. Retrying..."
-        apt update && apt install -y docker-ce docker-ce-cli containerd.io docker docker-compose-plugin
-    fi
-    
+    apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
     echo "✅ Docker installed successfully."
 }
 
-# Function to install essential security tools
+# Install basic tools
 install_tools() {
-    echo "🛠️ Installing additional tools..."
-    TOOLS=("ufw" "fail2ban" "unattended-upgrades" "curl" "git" "htop" "net-tools")
-    
-    for tool in "${TOOLS[@]}"; do
-        echo "Installing $tool..."
-        apt install -y "$tool"
-        
-        if [[ $? -ne 0 ]]; then
-            echo "❌ Failed to install $tool. Skipping..."
-        fi
-    done
-    
-    echo "✅ Additional tools installed."
+    echo "🛠️ Installing essential tools..."
+    apt install -y ufw fail2ban unattended-upgrades curl git htop net-tools
+    echo "✅ Tools installed."
 }
 
-# Apply DNS and mirror updates
+# Apply DNS and system update
 change_dns
-find_best_mirror
-
-# Update system and install security packages
-echo "🔄 Updating system and installing security packages..."
+disable_ipv6
 apt update && apt upgrade -y
-
-if [[ $? -ne 0 ]]; then
-    echo "❌ Failed to update system packages. Retrying..."
-    apt update && apt upgrade -y
-fi
 
 install_tools
 
-# Set system timezone
-echo "⏳ Setting timezone to $TIMEZONE..."
-timedatectl set-timezone "$TIMEZONE"
-
-# Create a new secure sudo user
+# Create sudo user
 if id "$USERNAME" &>/dev/null; then
     echo "✅ User '$USERNAME' already exists."
 else
     echo "👤 Creating new sudo user: $USERNAME..."
     adduser --gecos "" "$USERNAME"
     usermod -aG sudo "$USERNAME"
-    
-    # Secure SSH key-based authentication
-    echo "🔑 Copying SSH keys for secure login..."
-    mkdir -p /home/$USERNAME/.ssh
-    cp ~/.ssh/authorized_keys /home/$USERNAME/.ssh/
-    chown -R $USERNAME:$USERNAME /home/$USERNAME/.ssh
-    chmod 700 /home/$USERNAME/.ssh
-    chmod 600 /home/$USERNAME/.ssh/authorized_keys
 fi
 
-# Secure SSH configuration
-echo "🔐 Securing SSH..."
+# SSH hardening (allow password login, custom port, disable root login)
+echo "🔐 Configuring SSH..."
 sed -i "s/^#Port 22/Port $SSH_PORT/" /etc/ssh/sshd_config
 sed -i "s/^#PermitRootLogin yes/PermitRootLogin no/" /etc/ssh/sshd_config
-sed -i "s/^#PasswordAuthentication yes/PasswordAuthentication no/" /etc/ssh/sshd_config
+sed -i "s/^#PasswordAuthentication yes/PasswordAuthentication yes/" /etc/ssh/sshd_config
 systemctl restart sshd
 
-# Configure UFW Firewall
+# UFW firewall
 echo "🛡️ Configuring UFW Firewall..."
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow $SSH_PORT/tcp
-ufw allow 80/tcp
-ufw allow 443/tcp
+ufw allow 2375/tcp       # Docker (non-TLS, optional - remove if not needed)
+ufw allow 2376/tcp       # Docker (TLS)
+ufw allow 80/tcp         # HTTP
+ufw allow 443/tcp        # HTTPS
 ufw --force enable
 
+# Install Docker and add user to docker group
 install_docker
-
-# Add user to the Docker group for Docker access
-echo "⚙️ Adding $USERNAME to Docker group..."
 usermod -aG docker "$USERNAME"
 systemctl enable docker && systemctl start docker
 
-# Display open ports for security review
-echo "🔍 Checking open ports..."
-ss -tulnp | grep LISTEN
-
 # Enable automatic security updates
-echo "📦 Enabling automatic security updates..."
+echo "📦 Enabling unattended upgrades..."
 dpkg-reconfigure -plow unattended-upgrades
 
-# Apply system hardening settings
-echo "🛠️ Applying system hardening..."
+# System hardening
+echo "🛠️ Applying sysctl security settings..."
 cat <<EOF >> /etc/sysctl.conf
 fs.suid_dumpable = 0
 kernel.randomize_va_space = 2
@@ -172,10 +114,14 @@ net.ipv4.conf.default.rp_filter = 1
 EOF
 sysctl -p
 
-# Final message and reboot
+# Show open ports
+echo "🔍 Current open ports:"
+ss -tulnp | grep LISTEN
+
+# Done
 echo "✅ VPS setup complete!"
-echo "🚀 You can now log in as $USERNAME using SSH on port $SSH_PORT."
-echo "🔍 Check your open ports carefully and disable any unnecessary ones."
-echo "🔄 Rebooting in 10 seconds. GOOD LUCK! (MATIN3AI)"
+echo "🚀 You can now log in as $USERNAME via SSH on port $SSH_PORT."
+echo "🔒 Remember to monitor your VPS and keep it updated regularly."
+echo "🔄 Rebooting in 10 seconds..."
 sleep 10
 reboot
